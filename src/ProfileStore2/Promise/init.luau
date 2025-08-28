@@ -1,4 +1,36 @@
 --!strict
+--[[
+	Copyright (c) 2019 Eryn L. K.
+	https://github.com/evaera/roblox-lua-promise
+
+	This library is a derivative work of the original Promise.lua library by evaera,
+	licensed under the MIT License.
+
+	---
+
+	Copyright (c) 2025 Distracted Games
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+]]
+
+--[[
+	A modern, robust, and strictly-typed Promise implementation for Luau.
+	Designed to handle asynchronous operations like DataStore calls or asset loading
+	in a clean, non-blocking, and readable way.
+
+	LeanPromise is a complete, feature-complete refactor of the popular
+	Promise.lua library by evaera, architected to align with modern Luau
+	idioms and a professional, type-safe workflow.
+]]
+
 local PromiseError = require(script.PromiseError)
 
 type PromiseError = PromiseError.PromiseError
@@ -37,8 +69,8 @@ local function runExecutor(traceback: string, callback: () -> ...any, ...: any):
 	return xpcall(callback, makeErrorHandler(traceback), ...)
 end
 
-local Promise = {}
-Promise.__index = Promise
+local LeanPromise = {}
+LeanPromise.__index = LeanPromise
 
 export type Promise<T> = typeof(setmetatable(
 	{} :: {
@@ -73,10 +105,10 @@ export type Promise<T> = typeof(setmetatable(
 			) -> ()
 		) -> Promise<T>,
 	},
-	Promise
+	LeanPromise
 ))
 
-function Promise.new<T>(
+function LeanPromise.new<T>(
 	executor: (
 		resolve: (...any) -> (),
 		reject: (any) -> (),
@@ -86,7 +118,7 @@ function Promise.new<T>(
 	-- Capturing stack trace at the moment of creation.
 	local traceback = debug.traceback(nil, 2)
 
-	local self = setmetatable({}, Promise) :: Promise<T>
+	local self = setmetatable({}, LeanPromise) :: Promise<T>
 	self._status = Status.Started
 	self._values = nil
 	self._valuesLength = -1
@@ -174,7 +206,7 @@ local function createChainedCallback<T>(
 		if success then
 			-- If the handler returns another promise, we must wait for it to settle
 			-- before resolving the current link in tha chain.
-			if typeof(result) == "table" and getmetatable(result) == Promise then
+			if typeof(result) == "table" and getmetatable(result) == LeanPromise then
 				(result :: Promise<T>):andThen(resolve, reject)
 			else
 				-- Otherwise, just resolve with the returned value.
@@ -187,9 +219,9 @@ local function createChainedCallback<T>(
 	end
 end
 
-function Promise.andThen(self: Promise<any>, onFulfilled: ((...any) -> any?)?, onRejected: ((any) -> any?)?): Promise<any>
+function LeanPromise.andThen(self: Promise<any>, onFulfilled: ((...any) -> any?)?, onRejected: ((any) -> any?)?): Promise<any>
 	if self._status == Status.Cancelled then
-		local p = Promise.new(function() end)
+		local p = LeanPromise.new(function() end)
 		p:cancel()
 		return p
 	end
@@ -204,7 +236,7 @@ function Promise.andThen(self: Promise<any>, onFulfilled: ((...any) -> any?)?, o
 
 	-- Create the next promise in the chain. It starts in a "Started" state.
 	-- This new promise will only settle when our current promise ('self') settles.
-	local nextPromise = Promise.new(function(resolve, reject)
+	local nextPromise = LeanPromise.new(function(resolve, reject)
 		local successCallback = if onFulfilled
 			then createChainedCallback(traceback, onFulfilled, resolve, reject)
 			else resolve
@@ -234,7 +266,7 @@ function Promise.andThen(self: Promise<any>, onFulfilled: ((...any) -> any?)?, o
 	return nextPromise
 end
 
-function Promise.cancel(self: Promise<any>)
+function LeanPromise.cancel(self: Promise<any>)
 	if self._status ~= Status.Started then
 		return
 	end
@@ -255,11 +287,11 @@ function Promise.cancel(self: Promise<any>)
 end
 
 -- Shorthand for :andThen(nil, onRejected)
-function Promise.catch(self: Promise<any>, onRejected: (...any) -> ()): Promise<any>
+function LeanPromise.catch(self: Promise<any>, onRejected: (...any) -> ()): Promise<any>
 	return self:andThen(nil, onRejected)
 end
 
-function Promise.finally(self: Promise<any>, onFinally: (() -> ())?): Promise<any>
+function LeanPromise.finally(self: Promise<any>, onFinally: (() -> ())?): Promise<any>
 	if not onFinally then
 		return self -- If no handler, just return the original promise
 	end
@@ -267,7 +299,7 @@ function Promise.finally(self: Promise<any>, onFinally: (() -> ())?): Promise<an
 	self._unhandledRejection = false -- A `:finally` counts as handling a rejection.
 	local traceback = debug.traceback(nil, 2)
 
-	return Promise.new(function(resolve: (...any) -> (), reject: (any) -> ())
+	return LeanPromise.new(function(resolve: (...any) -> (), reject: (any) -> ())
 		-- This callback runs regardless of the outcome of 'self'.
 		local function finallyCallback()
 			local success, result = runExecutor(traceback, onFinally)
@@ -292,7 +324,7 @@ function Promise.finally(self: Promise<any>, onFinally: (() -> ())?): Promise<an
 			end
 
 			-- If the finally handler returnss a promise, wait for it.
-			if typeof(result) == "table" and getmetatable(result) == Promise then
+			if typeof(result) == "table" and getmetatable(result) == LeanPromise then
 				(result :: Promise<any>):andThen(
 					passThroughOriginalOutcome,
 					reject -- If the returned promise rejects, the whole chain rejects.
@@ -315,15 +347,15 @@ function Promise.finally(self: Promise<any>, onFinally: (() -> ())?): Promise<an
 end
 
 -- Helper function to create an already-resolved promise
-function Promise.resolve<T>(value: T): Promise<T>
-	return Promise.new(function(resolve)
+function LeanPromise.resolve<T>(value: T): Promise<T>
+	return LeanPromise.new(function(resolve)
 		resolve(value)
 	end)
 end
 
 -- Helper function to create an already-rejected promise
-function Promise.reject(reason: any): Promise<any>
-	return Promise.new(function(_, reject)
+function LeanPromise.reject(reason: any): Promise<any>
+	return LeanPromise.new(function(_, reject)
 		reject(reason)
 	end)
 end
@@ -333,7 +365,7 @@ end
     - Resolves with a table of all resolved values after all input promises resolve.
     - Rejects is ANY input promise rejects.
 ]]
-function Promise.all<T>(promises: { Promise<T> }): Promise<{ T }>
+function LeanPromise.all<T>(promises: { Promise<T> }): Promise<{ T }>
 	local traceback = debug.traceback(nil, 2)
 
 	if typeof(promises) ~= "table" then
@@ -342,10 +374,10 @@ function Promise.all<T>(promises: { Promise<T> }): Promise<{ T }>
 
 	-- Edge case handling of an empty table being passed.
 	if #promises == 0 then
-		return Promise.resolve({})
+		return LeanPromise.resolve({})
 	end
 
-	return Promise.new(function(resolve, reject, onCancel)
+	return LeanPromise.new(function(resolve, reject, onCancel)
 		local resolvedValues = {}
 		local promisesRemaining = #promises
 
@@ -358,7 +390,7 @@ function Promise.all<T>(promises: { Promise<T> }): Promise<{ T }>
 
 		for index, promise in ipairs(promises) do
 			-- Ensure all inputs are valid promises
-			if typeof(promise) ~= "table" or getmetatable(promise) ~= Promise then
+			if typeof(promise) ~= "table" or getmetatable(promise) ~= LeanPromise then
 				-- We reject the main promise, not error, to keep behavior async
 				reject(PromiseError.new({
 					error = `Value at index {index} is not a promise.`,
@@ -391,14 +423,14 @@ end
     - Resolves as soon as the FIRST input promise resolves.
     - Rejects as soon as the FIRST input promise rejects.
 ]]
-function Promise.race<T>(promises: { Promise<T> }): Promise<T>
+function LeanPromise.race<T>(promises: { Promise<T> }): Promise<T>
 	local traceback = debug.traceback(nil, 2)
 
 	if typeof(promises) ~= "table" then
 		error(`Promise.race expects a table of promises, got: {typeof(promises)}`, 2)
 	end
 
-	return Promise.new(function(resolve, reject, onCancel)
+	return LeanPromise.new(function(resolve, reject, onCancel)
 		local isSettled = false
 
 		onCancel(function()
@@ -408,7 +440,7 @@ function Promise.race<T>(promises: { Promise<T> }): Promise<T>
 		end)
 
 		for index, promise in ipairs(promises) do
-			if typeof(promise) ~= "table" or getmetatable(promise) ~= Promise then
+			if typeof(promise) ~= "table" or getmetatable(promise) ~= LeanPromise then
 				reject(PromiseError.new({
 					error = `Value at index {index} is not a promise.`,
 					kind = PromiseError.Kind.ExecutionError,
@@ -437,9 +469,9 @@ function Promise.race<T>(promises: { Promise<T> }): Promise<T>
 end
 
 return {
-	new = Promise.new,
-	all = Promise.all,
-	race = Promise.race,
-	resolve = Promise.resolve,
-	reject = Promise.reject,
+	new = LeanPromise.new,
+	all = LeanPromise.all,
+	race = LeanPromise.race,
+	resolve = LeanPromise.resolve,
+	reject = LeanPromise.reject,
 }
