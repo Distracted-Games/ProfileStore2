@@ -5,7 +5,7 @@ local totalTests = 0
 local passedTests = 0
 
 print("=====================================")
-print("  Running tests for Promise Library  ")
+print("  Running tests for ProfileStore2 Library  ")
 print("=====================================")
 
 for testName, testFunction in TestSuite :: { () -> () } do

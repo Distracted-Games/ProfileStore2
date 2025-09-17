@@ -21,7 +21,7 @@
     and provides methods for interaction.
 ]]
 
-local Promise = require(script.Parent.Promise)
+local Promise = require(script.Parent.LeanPromise)
 local Signal = require(script.Parent.Signal)
 local Util = require(script.Parent.Util)
 

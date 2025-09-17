@@ -31,8 +31,8 @@ local RunService = game:GetService("RunService")
 
 local Constants = require(script.Constants)
 local Profile = require(script.Profile)
-local Promise = require(script.Promise)
-local PromiseError = require(script.Promise.PromiseError)
+local Promise = require(script.LeanPromise)
+local PromiseError = require(script.LeanPromise.PromiseError)
 local Signal = require(script.Signal)
 local Util = require(script.Util)
 
