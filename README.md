@@ -10,7 +10,7 @@ A robust, modular, and fully asynchronous DataStore library featuring session lo
 | :--- | :--- | :--- |
 | `init.luau` | `.../ProfileStore2/` | The main entry point and "Store" manager class. This is what you `require`. |
 | `Profile.luau` | `.../ProfileStore2/` | The OOP class for a single "Profile" object, which holds player data. |
-| `Promise/init.luau` | `.../ProfileStore2/Promise/` | **Core Dependency**: A refactored Promise library for asynchronous control flow. |
+| `LeanPromise/init.luau` | `.../ProfileStore2/Promise/` | **Core Dependency**: A refactored Promise library for asynchronous control flow. |
 | `Promise/PromiseError.luau` | `.../ProfileStore2/Promise/` | **Core Dependency**: The rich error object used by the Promise library. |
 | `Signal.luau` | `.../ProfileStore2/` | A robust, yield-safe Signal implementation used for event handling. |
 | `Constants.luau` | `.../ProfileStore2/` | A centralized, read-only table of all configuration values. |
