@@ -482,7 +482,7 @@ function ProfileStore._updateAsync<T>(
 	releaseQueue()
 
 	if not success then
-		warn(`[ProfileStore]: UpadteAsync failed for key '{key}': {tostring(result)}`)
+		warn(`[ProfileStore]: UpdateAsync failed for key '{key}': {tostring(result)}`)
 		OnError:Fire(tostring(result), self.Name, key)
 		return nil, nil
 	end
