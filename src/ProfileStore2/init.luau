@@ -544,7 +544,7 @@ end
     @return A Promise that resolves with the ready-to-use ProfileStore, or rejects on failure.
 ]]
 function ProfileStore.create<T>(storeName: string, template: T?): Promise.Promise<ProfileStore<T>>
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve: (ProfileStore<T>) -> (), reject)
 		local store = new(storeName, template)
 
 		if currentDataStoreState == DataStoreState.Access then
@@ -563,7 +563,9 @@ function ProfileStore.create<T>(storeName: string, template: T?): Promise.Promis
 		local connection
 		connection = StateChanged:Connect(function()
 			-- Important: only listen once (`Once` not built into this version of Signal)
-			connection:Disconnect()
+			if connection then
+				connection:Disconnect()
+			end
 			if currentDataStoreState == DataStoreState.Access then
 				resolve(store)
 			else
@@ -573,18 +575,18 @@ function ProfileStore.create<T>(storeName: string, template: T?): Promise.Promis
 				}))
 			end
 		end)
-	end)
+	end) :: Promise.Promise<ProfileStore<T>>
 end
 
 --[[
     Loads a player's profile, handling session locking to ensure data safety.
     @return A Promise that resolves with the Profile object or rejects if it fails or times out.
 ]]
-function ProfileStore.LoadProfileAsync(
-	self: ProfileStore<any>,
+function ProfileStore.LoadProfileAsync<T>(
+	self: ProfileStore<T>,
 	key: string,
 	params: { Steal: boolean?, Cancel: () -> boolean? }?
-): Promise.Promise<Profile.Profile<any>>
+): Promise.Promise<Profile.Profile<T>>
 	self:_waitForStoreReady()
 
 	if typeof(key) ~= "string" or #key == 0 or #key > 50 then
@@ -593,64 +595,70 @@ function ProfileStore.LoadProfileAsync(
 
 	local options = params or {} :: any
 
-	return Promise.new(function(resolve, reject, onCancel)
-		local startTime = os.clock()
-		local uniqueSessionId = HttpService:GenerateGUID(false)
-		local isMock = readMockFlag()
-		local isSettled = false
+	return Promise.new(
+			function(resolve: (Profile.Profile<T>) -> (), reject, onCancel)
+				local startTime = os.clock()
+				local uniqueSessionId = HttpService:GenerateGUID(false)
+				local isMock = readMockFlag()
+				local isSettled = false
 
-		task.spawn(function()
-			while not isSettled do
-				-- Failsafe 1: Timeout
-				if os.clock() - startTime > Constants.START_SESSION_TIMEOUT then
-					isSettled = true
-					reject(PromiseError.new({ error = "Timed out", kind = "TimedOut" }))
-					break
-				end
+				task.spawn(function()
+					while not isSettled do
+						-- Failsafe 1: Timeout
+						if os.clock() - startTime > Constants.START_SESSION_TIMEOUT then
+							isSettled = true
+							reject(PromiseError.new({ error = "Timed out", kind = "TimedOut" }))
+							break
+						end
 
-				-- Failsafe 2: User-provided cancellation
-				if options.Cancel and options.Cancel() then
-					isSettled = true
-					reject(PromiseError.new({ error = "Cancelled by user", kind = "Cancelled" }))
-					break
-				end
+						-- Failsafe 2: User-provided cancellation
+						if options.Cancel and options.Cancel() then
+							isSettled = true
+							reject(PromiseError.new({ error = "Cancelled by user", kind = "Cancelled" }))
+							break
+						end
 
-				-- Execute the UpdateAsync call.
-				local loadedData, keyInfo = self:_updateAsync(key, function(latestData)
-					return transformProfileDataForLoad(self, latestData, uniqueSessionId, options)
-				end, isMock)
+						-- Execute the UpdateAsync call.
+						local loadedData, keyInfo = self:_updateAsync(key, function(latestData)
+							return transformProfileDataForLoad(self, latestData, uniqueSessionId, options)
+						end, isMock)
 
-				if not loadedData or not keyInfo then
-					-- The UpdateAsync call failed. Wait and let the loop retry.
-					task.wait(Constants.LOAD_REPEAT_PERIOD)
-					continue
-				end
+						if not loadedData or not keyInfo then
+							-- The UpdateAsync call failed. Wait and let the loop retry.
+							task.wait(Constants.LOAD_REPEAT_PERIOD)
+							continue
+						end
 
-				local activeSession = loadedData.MetaData.ActiveSession
-				if activeSession and activeSession.PlaceId == PlaceId and activeSession.JobId == JobId then
-					-- SUCCESS! We have secured the session lock.
-					isSettled = true
-					local sessionToken = generateSessionToken(self.Name, key, isMock)
-					local profile = Profile.new(loadedData, keyInfo, self :: any, key, isMock, sessionToken)
-					addProfileToAutoSave(profile)
-					profile:Reconcile() -- Fill in any new template data
-					resolve(profile)
-				else
-					-- We did not get the session lock.
-					if activeSession and typeof(activeSession.UniqueId) == "string" then
-						task.spawn(MessagingService.PublishAsync, MessagingService, `PS_{activeSession.UniqueId}`, {
-							LoadCount = loadedData.MetaData.SessionLoadCount,
-							EndSession = true,
-						})
+						local activeSession = loadedData.MetaData.ActiveSession
+						if activeSession and activeSession.PlaceId == PlaceId and activeSession.JobId == JobId then
+							-- SUCCESS! We have secured the session lock.
+							isSettled = true
+							local sessionToken = generateSessionToken(self.Name, key, isMock)
+							local profile = Profile.new(loadedData, keyInfo, self :: any, key, isMock, sessionToken)
+							addProfileToAutoSave(profile)
+							profile:Reconcile() -- Fill in any new template data
+							resolve(profile)
+						else
+							-- We did not get the session lock.
+							if activeSession and typeof(activeSession.UniqueId) == "string" then
+								task.spawn(
+									MessagingService.PublishAsync,
+									MessagingService,
+									`PS_{activeSession.UniqueId}`,
+									{
+										LoadCount = loadedData.MetaData.SessionLoadCount,
+										EndSession = true,
+									}
+								)
+							end
+
+							-- Wait and let the loop retry.
+							task.wait(Constants.LOAD_REPEAT_PERIOD)
+							continue
+						end
 					end
-
-					-- Wait and let the loop retry.
-					task.wait(Constants.LOAD_REPEAT_PERIOD)
-					continue
-				end
-			end
-		end)
-	end)
+				end)
+			end) :: Promise.Promise<Profile.Profile<T>>
 end
 
 --[[
@@ -670,7 +678,7 @@ function ProfileStore.GetAsync<T>(
 		error(`[ProfileStore]: Invalid 'key' provided to GetAsync.`, 2)
 	end
 
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve: (Profile.Profile<T>?) -> (), reject)
 		local isMock = readMockFlag()
 
 		task.spawn(function()
@@ -706,14 +714,14 @@ function ProfileStore.GetAsync<T>(
 			end
 
 			-- Reconcile against the template to fill in any new default fields.
-			Util.ReconcileTable(rawData.Data, self._template :: any)
+			Util.ReconcileTable((rawData :: any).Data, self._template :: any)
 
 			local sessionToken = generateSessionToken(self.Name, key, isMock)
 			local profile = Profile.new(rawData, keyInfo, self :: any, key, isMock, sessionToken)
 			profile._viewMode = true -- CRITICAL: Flag this profile as read-only.
 			resolve(profile)
 		end)
-	end)
+	end) :: Promise.Promise<Profile.Profile<T>?>
 end
 
 --[[
@@ -727,7 +735,7 @@ function ProfileStore.RemoveAsync<T>(self: ProfileStore<T>, key: string): Promis
 		error(`[ProfileStore]: Invalid 'key' provided to RemoveAsync.`, 2)
 	end
 
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve: (boolean) -> (), reject)
 		local isMock = readMockFlag()
 		local sessionToken = generateSessionToken(self.Name, key, isMock)
 
@@ -745,6 +753,7 @@ function ProfileStore.RemoveAsync<T>(self: ProfileStore<T>, key: string): Promis
 				else
 					local ok, err = pcall(function()
 						self._dataStore:RemoveAsync(key)
+						return true
 					end)
 					if not ok then
 						error(err) -- Re-throw the error to be cuaght by the other pcall
@@ -766,7 +775,7 @@ function ProfileStore.RemoveAsync<T>(self: ProfileStore<T>, key: string): Promis
 				resolve(true)
 			end
 		end)
-	end)
+	end) :: Promise.Promise<boolean>
 end
 
 --------------------------------------------------------------------------------
@@ -884,7 +893,7 @@ task.spawn(function()
 	end
 
 	local success, message = pcall(function()
-		DataStoreService:GetDataStore("____ProfileStoreConnectivityTest"):GetAsync("Connectivity")
+		return DataStoreService:GetDataStore("____ProfileStoreConnectivityTest"):GetAsync("Connectivity")
 	end)
 
 	if success then
