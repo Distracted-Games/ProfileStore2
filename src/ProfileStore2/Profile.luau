@@ -44,86 +44,80 @@ type ProfileData<T> = {
 type ProfileStore<T> = {
 	-- Public Properties
 	Name: string,
-	Mock: ProfileStore<T>,
+	Mock: any, -- Typed as any to avoid recursive dependency loop
 
 	-- Internal Properties
 	_template: T,
-	_dataStore: DataStore,
-	_isReady: boolean,
 
 	-- Public Methods
-	create: (storeName: string, template: T?) -> Promise.Promise<ProfileStore<T>>,
+	create: (storeName: string, template: T?) -> Promise.Promise<any>, -- Returns ProfileStore<T>
 	LoadProfileAsync: (
 		self: ProfileStore<T>,
 		key: string,
 		paramas: { Steal: boolean?, Cancel: () -> boolean? }?
-	) -> Promise.Promise<ProfileStore<T>>,
-	GetAsync: (self: ProfileStore<T>, key: string, version: string?) -> Promise.Promise<Profile<T>?>,
+	) -> Promise.Promise<any>, -- Returns Profile<T>
+	GetAsync: (self: ProfileStore<T>, key: string, version: string?) -> Promise.Promise<any>, -- Returns Profile<T>?
 	RemoveAsync: (self: ProfileStore<T>, key: string) -> Promise.Promise<boolean>,
 
 	-- Private Methods
-	_updateAsync: (
-		self: ProfileStore<T>,
-		key: string,
-		transform: (latestData: ProfileData<T>) -> (ProfileData<T>, { number }?, { [string]: any }?),
-		isMock: boolean
-	) -> (ProfileData<T>?, DataStoreKeyInfo?),
-	_releaseProfile: (self: ProfileStore<T>, profile: Profile<T>, reason: string) -> (),
-	_saveProfile: (self: ProfileStore<T>, profile: Profile<T>) -> (),
+	_releaseProfile: (self: ProfileStore<T>, profile: any, reason: string) -> (),
+	_saveProfile: (self: ProfileStore<T>, profile: any) -> (),
+
+	[any]: any,
 }
 
 -- The generic <T> represents the developer's custom data structure (e.g., PlayerProfile)
 type ClassType<T> = {
-    -- Public, Read-Only Data
-    Data: T,
-    LastSavedData: T,
-    FirstSessionTime: number,
-    SessionLoadCount: number,
-    Session: { PlaceId: number, JobId: string }?,
-    UserIds: { number },
-    KeyInfo: DataStoreKeyInfo,
-    Key: string,
-    ProfileStore: ProfileStore<T>,
+	-- Public, Read-Only Data
+	Data: T,
+	LastSavedData: T,
+	FirstSessionTime: number,
+	SessionLoadCount: number,
+	Session: { PlaceId: number, JobId: string }?,
+	UserIds: { number },
+	KeyInfo: DataStoreKeyInfo,
+	Key: string,
+	ProfileStore: ProfileStore<T>,
 
-    -- Writable Data
-    RobloxMetaData: { [string]: any },
+	-- Writable Data
+	RobloxMetaData: { [string]: any },
 
-    -- Public Signals
-    OnSave: Signal.Signal<>,
-    OnLastSave: Signal.Signal<>, -- "Manual" | "External" | "Shutdown"
-    OnSessionEnd: Signal.Signal<>,
-    OnAfterSave: Signal.Signal<>,
+	-- Public Signals
+	OnSave: Signal.Signal<>,
+	OnLastSave: Signal.Signal<>, -- "Manual" | "External" | "Shutdown"
+	OnSessionEnd: Signal.Signal<>,
+	OnAfterSave: Signal.Signal<>,
 
-    -- Internal State (for class methods)
-    _loadTimestamp: number,
-    _isMock: boolean,
-    _sessionToken: string,
-    _loadIndex: number,
-    _lockedGlobalUpdates: { [string]: boolean },
-    _receivedGlobalUpdates: { [string]: boolean },
-    _messageHandlers: { (message: any, processed: () -> ()) -> () },
-    _globalUpdates: { { any } },
-    _robloxMessageSubscription: { Disconnect: () -> () }?,
-    _viewMode: boolean,
-    _isActive: boolean,
+	-- Internal State (for class methods)
+	_loadTimestamp: number,
+	_isMock: boolean,
+	_sessionToken: string,
+	_loadIndex: number,
+	_lockedGlobalUpdates: { [string]: boolean },
+	_receivedGlobalUpdates: { [string]: boolean },
+	_messageHandlers: { (message: any, processed: () -> ()) -> () },
+	_globalUpdates: { { any } },
+	_robloxMessageSubscription: { Disconnect: () -> () }?,
+	_viewMode: boolean,
+	_isActive: boolean,
 
-    -- Public Methods
-    IsActive: (self: Profile<T>) -> boolean,
-    Reconcile: (self: Profile<T>) -> (),
-    EndSession: (self: Profile<T>) -> (),
-    AddUserId: (self: Profile<T>, userId: number) -> (),
-    RemoveUserId: (self: Profile<T>, userId: number) -> (),
-    MessageHandler: (self: Profile<T>, fn: (message: any, processed: () -> ()) -> ()) -> (),
-    Save: (self: Profile<T>) -> (),
-    SetAsync: (self: Profile<T>) -> (),
-    new: (
-        rawDataTable: ProfileData<T>,
-        keyInfo: DataStoreKeyInfo,
-        profileStore: ProfileStore<T>,
-        key: string,
-        isMock: boolean,
-        sessionToken: string
-    ) -> Profile<T>,
+	-- Public Methods
+	IsActive: (self: Profile<T>) -> boolean,
+	Reconcile: (self: Profile<T>) -> (),
+	EndSession: (self: Profile<T>) -> (),
+	AddUserId: (self: Profile<T>, userId: number) -> (),
+	RemoveUserId: (self: Profile<T>, userId: number) -> (),
+	MessageHandler: (self: Profile<T>, fn: (message: any, processed: () -> ()) -> ()) -> (),
+	Save: (self: Profile<T>) -> (),
+	SetAsync: (self: Profile<T>) -> (),
+	new: (
+		rawDataTable: ProfileData<T>,
+		keyInfo: DataStoreKeyInfo,
+		profileStore: ProfileStore<T>,
+		key: string,
+		isMock: boolean,
+		sessionToken: string
+	) -> Profile<T>,
 }
 
 local Profile = {}
@@ -135,7 +129,7 @@ export type Profile<T> = setmetatable<ClassType<T>, typeof(Profile)>
 function Profile.new<T>(
 	rawDataTable: { Data: T?, MetaData: any?, GlobalUpdates: any?, RobloxMetaData: any?, UserIds: any? },
 	keyInfo: DataStoreKeyInfo,
-	profileStore: ProfileStore<any>,
+	profileStore: ProfileStore<T>,
 	key: string,
 	isMock: boolean,
 	sessionToken: string
@@ -152,7 +146,7 @@ function Profile.new<T>(
 		else nil
 
 	-- Process global updates (messages) to track what has been received.
-	local globalUpdates = (typeof(rawData.GlobalUpdates) == "table" and rawData.GlobalUpdates[2]) or {}
+	local globalUpdates: { any } = if typeof(rawData.GlobalUpdates) == "table" then rawData.GlobalUpdates[2] else {}
 	local receivedGlobalUpdates = {}
 	for _, update in ipairs(globalUpdates) do
 		receivedGlobalUpdates[update[1]] = true
@@ -211,7 +205,7 @@ function Profile.Reconcile(self: Profile<any>)
 	-- We delegate the actual reconciliation logic to the Util module.
 	-- The profile correctly gets the template from its parent store.
 	local profileStore = self.ProfileStore
-	if profileStore and profileStore._template then
+	if profileStore and profileStore._template :: any then
 		Util.ReconcileTable(self.Data, profileStore._template)
 	end
 end
@@ -229,7 +223,7 @@ function Profile.EndSession(self: Profile<any>)
 
 	-- This call tells the store to perform the final save and cleanup.
 	local profileStore = self.ProfileStore
-	if profileStore and profileStore._releaseProfile then
+	if profileStore and profileStore._releaseProfile :: any then
 		-- The "Manual" reason is passed for when the developer explicitely ends the session.
 		profileStore:_releaseProfile(self, "Manual")
 	end
