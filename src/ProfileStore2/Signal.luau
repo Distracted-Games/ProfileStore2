@@ -20,34 +20,31 @@
     Based on the work of stravant.
 ]]
 
+type SignalClassType<T...> = {
+    _head: Connection?,
+    _listenerCount: number,
+    Connect: (self: Signal<T...>, callback: (T...) -> ()) -> Connection,
+    Fire: (self: Signal<T...>, ...any) -> (),
+    Wait: (self: Signal<T...>) -> T...,
+    GetListenerCount: (self: Signal<T...>) -> number,
+}
+
+type ConnectionClassType = {
+    Disconnect: (self: Connection) -> (),
+    IsConnected: boolean,
+    _listener: (...any) -> (),
+    _signal: any, -- is a Signal
+    _next: Connection?,
+}
+
 local Signal = {}
 Signal.__index = Signal
 
 local Connection = {}
 Connection.__index = Connection
 
-export type Connection = typeof(setmetatable(
-	{} :: {
-		Disconnect: (self: Connection) -> (),
-		IsConnected: boolean,
-		_listener: (...any) -> (),
-		_signal: any, -- is a Signal
-		_next: Connection?,
-	},
-	Connection
-))
-
-export type Signal<T...> = typeof(setmetatable(
-	{} :: {
-		_head: Connection?,
-		_listenerCount: number,
-		Connect: (self: Signal<T...>, callback: (T...) -> ()) -> Connection,
-		Fire: (self: Signal<T...>, ...any) -> (),
-		Wait: (self: Signal<T...>) -> T...,
-		GetListenerCount: (self: Signal<T...>) -> number,
-	},
-	Signal
-))
+export type Connection = setmetatable<ConnectionClassType, typeof(Connection)>
+export type Signal<T...> = setmetatable<SignalClassType<T...>, typeof(Signal)>
 
 local freeRunnerThread: thread?
 
@@ -119,7 +116,7 @@ function Signal.Fire<T...>(self: Signal<T...>, ...)
 				freeRunnerThread = coroutine.create(runEventHandlerInFreeThread)
 			end
 			if freeRunnerThread then
-				task.spawn(freeRunnerThread, item._listener, ...)
+				task.spawn(freeRunnerThread :: thread, item._listener, ...)
 			end
 		end
 		item = item._next
