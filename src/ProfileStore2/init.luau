@@ -51,44 +51,44 @@ type ProfileData<T> = {
 	RobloxMetaData: { [string]: any },
 }
 
+-- The generic <T> represents the developer's custom data template.
+type ClassType<T> = {
+	-- Public Properties
+	Name: string,
+	Mock: ProfileStore<T>,
+
+	-- Internal Properties
+	_template: T,
+	_dataStore: DataStore,
+	_isReady: boolean,
+
+	-- Public Methods
+	create: (storeName: string, template: T?) -> Promise.Promise<ProfileStore<T>>,
+	LoadProfileAsync: (
+		self: ProfileStore<T>,
+		key: string,
+		paramas: { Steal: boolean?, Cancel: () -> boolean? }?
+	) -> Promise.Promise<Profile.Profile<T>>,
+	GetAsync: (self: ProfileStore<T>, key: string, version: string?) -> Promise.Promise<Profile.Profile<T>?>,
+	RemoveAsync: (self: ProfileStore<T>, key: string) -> Promise.Promise<boolean>,
+
+	-- Private Methods
+	_updateAsync: (
+		self: ProfileStore<T>,
+		key: string,
+		transform: (latestData: ProfileData<T>) -> (ProfileData<T>, { number }?, { [string]: any }?),
+		isMock: boolean
+	) -> (ProfileData<T>?, DataStoreKeyInfo?),
+	_releaseProfile: (self: ProfileStore<T>, profile: Profile.Profile<T>, reason: string) -> (),
+	_saveProfile: (self: ProfileStore<T>, profile: Profile.Profile<T>) -> (),
+	_waitForStoreReady: (self: ProfileStore<T>) -> (),
+}
+
 local ProfileStore = {}
 ProfileStore.__index = ProfileStore
 
 -- The generic <T> represents the developer's custom data template.
-export type ProfileStore<T> = typeof(setmetatable(
-	{} :: {
-		-- Public Properties
-		Name: string,
-		Mock: ProfileStore<T>,
-
-		-- Internal Properties
-		_template: T,
-		_dataStore: DataStore,
-		_isReady: boolean,
-
-		-- Public Methods
-		create: (storeName: string, template: T?) -> Promise.Promise<ProfileStore<T>>,
-		LoadProfileAsync: (
-			self: ProfileStore<T>,
-			key: string,
-			paramas: { Steal: boolean?, Cancel: () -> boolean? }?
-		) -> Promise.Promise<Profile.Profile<T>>,
-		GetAsync: (self: ProfileStore<T>, key: string, version: string?) -> Promise.Promise<Profile.Profile<T>?>,
-		RemoveAsync: (self: ProfileStore<T>, key: string) -> Promise.Promise<boolean>,
-
-		-- Private Methods
-		_updateAsync: (
-			self: ProfileStore<T>,
-			key: string,
-			transform: (latestData: ProfileData<T>) -> (ProfileData<T>, { number }?, { [string]: any }?),
-			isMock: boolean
-		) -> (ProfileData<T>?, DataStoreKeyInfo?),
-		_releaseProfile: (self: ProfileStore<T>, profile: Profile.Profile<T>, reason: string) -> (),
-		_saveProfile: (self: ProfileStore<T>, profile: Profile.Profile<T>) -> (),
-		_waitForStoreReady: (self: ProfileStore<T>) -> (),
-	},
-	ProfileStore
-))
+export type ProfileStore<T> = setmetatable<ClassType<T>, typeof(ProfileStore)>
 
 local DEBUG_MODE = false -- If true, debug print statements run
 
@@ -191,7 +191,9 @@ local function mockUpdateAsync<T>(
 	mockDataStore: { [string]: { [string]: any } },
 	storeName: string,
 	key: string,
-	transform: (latestData: ProfileData<T>?) -> ProfileData<T>?
+	transform: (
+		latestData: ProfileData<T>?
+	) -> (ProfileData<T>?, { number }?, { [string]: any }?)
 ): (ProfileData<T>?, DataStoreKeyInfo?)
 	local profileStore = mockDataStore[storeName]
 	if not profileStore then
@@ -249,8 +251,8 @@ local function _internalSaveAsync(
 		-- SECURITY: Only write data if this server's session lock is still valid.
 		if
 			activeSession
-			and activeSession[1] == PlaceId
-			and activeSession[2] == JobId
+			and activeSession.PlaceId == PlaceId
+			and activeSession.JobId == JobId
 			and sessionLoadCount == profile._loadIndex
 		then
 			latestData.Data = profile.Data
@@ -334,7 +336,7 @@ local function transformProfileDataForLoad<T>(
 	latestData: ProfileData<T>?,
 	uniqueSessionId: string,
 	options: { Steal: boolean?, Cancel: () -> boolean? }?
-): (ProfileData<T>, { any }?, { string: any }?)
+): (ProfileData<T>, { number }?, { [string]: any }?)
 	-- Case 1: Handle a completely new profile.
 	if not latestData then
 		local newData: ProfileData<any> = {
@@ -343,7 +345,7 @@ local function transformProfileDataForLoad<T>(
 				ProfileCreateTime = os.time(),
 				SessionLoadCount = 1,
 				LastUpdate = os.time(),
-				ActiveSession = { PlaceId, JobId, uniqueSessionId } :: any,
+				ActiveSession = { PlaceId = PlaceId, JobId = JobId, UniqueId = uniqueSessionId },
 			},
 			UserIds = {},
 			RobloxMetaData = {},
@@ -355,7 +357,7 @@ local function transformProfileDataForLoad<T>(
 	local activeSession = latestData.MetaData.ActiveSession
 	if not activeSession then
 		-- No active session, we're free to claim it.
-		latestData.MetaData.ActiveSession = { PlaceId, JobId, uniqueSessionId } :: any
+		latestData.MetaData.ActiveSession = { PlaceId = PlaceId, JobId = JobId, UniqueId = uniqueSessionId }
 		latestData.MetaData.SessionLoadCount += 1
 		latestData.MetaData.LastUpdate = os.time()
 		latestData.MetaData.ForceLoadSession = nil -- Clear any old requests
@@ -363,7 +365,7 @@ local function transformProfileDataForLoad<T>(
 	end
 
 	-- Case 3:  Handle a session conflict.
-	local isOurSession = activeSession[1] == PlaceId and activeSession[2] == JobId
+	local isOurSession = activeSession.PlaceId == PlaceId and activeSession.JobId == JobId
 	if isOurSession then
 		-- This is an unexpected state, but we can assume we have control.
 		latestData.MetaData.ForceLoadSession = nil
@@ -374,7 +376,7 @@ local function transformProfileDataForLoad<T>(
 	local isStale = (os.time() - latestData.MetaData.LastUpdate :: number) > Constants.ASSUME_DEAD
 	if (options and options.Steal) or isStale then
 		-- Forcefully take the session.
-		latestData.MetaData.ActiveSession = { PlaceId, JobId, uniqueSessionId } :: any
+		latestData.MetaData.ActiveSession = { PlaceId = PlaceId, JobId = JobId, UniqueId = uniqueSessionId }
 		latestData.MetaData.SessionLoadCount += 1
 		latestData.MetaData.LastUpdate = os.time()
 		latestData.MetaData.ForceLoadSession = nil
@@ -382,7 +384,7 @@ local function transformProfileDataForLoad<T>(
 	end
 
 	-- Case 5: Session is active and not stale. We must wait and ask the other server to release.
-	latestData.MetaData.ForceLoadSession = { PlaceId, JobId } :: { PlaceId: number, JobId: string }
+	latestData.MetaData.ForceLoadSession = { PlaceId = PlaceId, JobId = JobId }
 	return latestData, latestData.UserIds, latestData.RobloxMetaData
 end
 
@@ -463,7 +465,7 @@ function ProfileStore._updateAsync<T>(
 	key: string,
 	transform: (
 		latestData: ProfileData<T>?
-	) -> (ProfileData<T>?, { any }?, { [string]: any }?),
+	) -> (ProfileData<T>?, { number }?, { [string]: any }?),
 	isMock: boolean
 ): (ProfileData<T>?, DataStoreKeyInfo?)
 	self:_waitForStoreReady()
@@ -473,7 +475,7 @@ function ProfileStore._updateAsync<T>(
 
 	local success, result = pcall(function(): any
 		if isMock then
-			return mockUpdateAsync(UserMockStore, self.Name, key, transform)
+			return { mockUpdateAsync(UserMockStore, self.Name, key, transform) }
 		else
 			return { self._dataStore:UpdateAsync(key, transform) }
 		end
@@ -625,7 +627,7 @@ function ProfileStore.LoadProfileAsync(
 				end
 
 				local activeSession = loadedData.MetaData.ActiveSession
-				if activeSession and activeSession[1] == PlaceId and activeSession[2] == JobId then
+				if activeSession and activeSession.PlaceId == PlaceId and activeSession.JobId == JobId then
 					-- SUCCESS! We have secured the session lock.
 					isSettled = true
 					local sessionToken = generateSessionToken(self.Name, key, isMock)
@@ -635,8 +637,8 @@ function ProfileStore.LoadProfileAsync(
 					resolve(profile)
 				else
 					-- We did not get the session lock.
-					if activeSession and typeof(activeSession[3]) == "string" then
-						task.spawn(MessagingService.PublishAsync, MessagingService, `PS_{activeSession[3]}`, {
+					if activeSession and typeof(activeSession.UniqueId) == "string" then
+						task.spawn(MessagingService.PublishAsync, MessagingService, `PS_{activeSession.UniqueId}`, {
 							LoadCount = loadedData.MetaData.SessionLoadCount,
 							EndSession = true,
 						})
@@ -677,7 +679,7 @@ function ProfileStore.GetAsync<T>(
 			if isMock then
 				-- For a simple get, the transform just returns the existing data.
 				rawData, keyInfo = mockUpdateAsync(UserMockStore, self.Name, key, function(latestData)
-					return latestData
+					return latestData, nil, nil
 				end)
 			else
 				local success, result = pcall(function()
