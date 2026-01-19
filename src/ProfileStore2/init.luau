@@ -49,6 +49,7 @@ type ProfileData<T> = {
 	GlobalUpdates: any?,
 	UserIds: { number },
 	RobloxMetaData: { [string]: any },
+	WasOverwritten: boolean?,
 }
 
 -- The generic <T> represents the developer's custom data template.
@@ -76,7 +77,7 @@ type ClassType<T> = {
 	_updateAsync: (
 		self: ProfileStore<T>,
 		key: string,
-		transform: (latestData: ProfileData<T>) -> (ProfileData<T>, { number }?, { [string]: any }?),
+		transform: (latestData: ProfileData<T>?) -> (ProfileData<T>?, { number }?, { [string]: any }?),
 		isMock: boolean
 	) -> (ProfileData<T>?, DataStoreKeyInfo?),
 	_releaseProfile: (self: ProfileStore<T>, profile: Profile.Profile<T>, reason: string) -> (),
@@ -99,7 +100,6 @@ local AutoSaveIndex = 1
 local IsClosing = false
 local IsCriticalState = false
 local JobId = game.JobId
-print(JobId)
 local LastAutoSave = 0
 local MockFlag = false
 local PlaceId = game.PlaceId
@@ -596,69 +596,72 @@ function ProfileStore.LoadProfileAsync<T>(
 	local options = params or {} :: any
 
 	return Promise.new(
-			function(resolve: (Profile.Profile<T>) -> (), reject, onCancel)
-				local startTime = os.clock()
-				local uniqueSessionId = HttpService:GenerateGUID(false)
-				local isMock = readMockFlag()
-				local isSettled = false
+        function(resolve: (Profile.Profile<T>) -> (), reject, onCancel)
+            local startTime = os.clock()
+            local uniqueSessionId = HttpService:GenerateGUID(false)
+            local isMock = readMockFlag()
+            local isSettled = false
 
-				task.spawn(function()
-					while not isSettled do
-						-- Failsafe 1: Timeout
-						if os.clock() - startTime > Constants.START_SESSION_TIMEOUT then
-							isSettled = true
-							reject(PromiseError.new({ error = "Timed out", kind = "TimedOut" }))
-							break
-						end
+            task.spawn(function()
+                while not isSettled do
+                    -- Failsafe 1: Timeout
+                    if os.clock() - startTime > Constants.START_SESSION_TIMEOUT then
+                        isSettled = true
+                        reject(PromiseError.new({ error = "Timed out", kind = "TimedOut" }))
+                        break
+                    end
 
-						-- Failsafe 2: User-provided cancellation
-						if options.Cancel and options.Cancel() then
-							isSettled = true
-							reject(PromiseError.new({ error = "Cancelled by user", kind = "Cancelled" }))
-							break
-						end
+                    -- Failsafe 2: User-provided cancellation
+                    if options.Cancel and options.Cancel() then
+                        isSettled = true
+                        reject(PromiseError.new({ error = "Cancelled by user", kind = "Cancelled" }))
+                        break
+                    end
 
-						-- Execute the UpdateAsync call.
-						local loadedData, keyInfo = self:_updateAsync(key, function(latestData)
-							return transformProfileDataForLoad(self, latestData, uniqueSessionId, options)
-						end, isMock)
+                    -- Execute the UpdateAsync call.
+                    local loadedData, keyInfo = self:_updateAsync(key, function(latestData)
+                        return transformProfileDataForLoad(self, latestData, uniqueSessionId, options)
+                    end, isMock)
 
-						if not loadedData or not keyInfo then
-							-- The UpdateAsync call failed. Wait and let the loop retry.
-							task.wait(Constants.LOAD_REPEAT_PERIOD)
-							continue
-						end
+                    if loadedData == nil or keyInfo == nil then
+                        -- The UpdateAsync call failed. Wait and let the loop retry.
+                        task.wait(Constants.LOAD_REPEAT_PERIOD)
+                        continue
+                    end
 
-						local activeSession = loadedData.MetaData.ActiveSession
-						if activeSession and activeSession.PlaceId == PlaceId and activeSession.JobId == JobId then
-							-- SUCCESS! We have secured the session lock.
-							isSettled = true
-							local sessionToken = generateSessionToken(self.Name, key, isMock)
-							local profile = Profile.new(loadedData, keyInfo, self :: any, key, isMock, sessionToken)
-							addProfileToAutoSave(profile)
-							profile:Reconcile() -- Fill in any new template data
-							resolve(profile)
-						else
-							-- We did not get the session lock.
-							if activeSession and typeof(activeSession.UniqueId) == "string" then
-								task.spawn(
-									MessagingService.PublishAsync,
-									MessagingService,
-									`PS_{activeSession.UniqueId}`,
-									{
-										LoadCount = loadedData.MetaData.SessionLoadCount,
-										EndSession = true,
-									}
-								)
-							end
+                    local activeSession = loadedData.MetaData.ActiveSession
+                    if activeSession and activeSession.PlaceId == PlaceId and activeSession.JobId == JobId then
+                        -- SUCCESS! We have secured the session lock.
+                        isSettled = true
+                        local sessionToken = generateSessionToken(self.Name, key, isMock)
+                        
+                        -- Explicit cast and check for the solver
+                        assert(loadedData, "loadedData cannot be nil here")
+                        local profile = Profile.new(loadedData, keyInfo, self :: any, key, isMock, sessionToken)
+                        addProfileToAutoSave(profile)
+                        profile:Reconcile() -- Fill in any new template data
+                        resolve(profile)
+                    else
+                        -- We did not get the session lock.
+                        if activeSession and typeof(activeSession.UniqueId) == "string" then
+                            task.spawn(
+                                MessagingService.PublishAsync,
+                                MessagingService,
+                                `PS_{activeSession.UniqueId}`,
+                                {
+                                    LoadCount = loadedData.MetaData.SessionLoadCount,
+                                    EndSession = true,
+                                }
+                            )
+                        end
 
-							-- Wait and let the loop retry.
-							task.wait(Constants.LOAD_REPEAT_PERIOD)
-							continue
-						end
-					end
-				end)
-			end) :: Promise.Promise<Profile.Profile<T>>
+                        -- Wait and let the loop retry.
+                        task.wait(Constants.LOAD_REPEAT_PERIOD)
+                        continue
+                    end
+                end
+            end)
+        end) :: Promise.Promise<Profile.Profile<T>>
 end
 
 --[[

@@ -38,6 +38,7 @@ type ProfileData<T> = {
 	GlobalUpdates: any?,
 	UserIds: { number },
 	RobloxMetaData: { [string]: any },
+	WasOverwritten: boolean?,
 }
 
 -- The generic <T> represents the developer's custom data template.
@@ -127,7 +128,7 @@ Profile.__index = Profile
 export type Profile<T> = setmetatable<ClassType<T>, typeof(Profile)>
 
 function Profile.new<T>(
-	rawDataTable: { Data: T?, MetaData: any?, GlobalUpdates: any?, RobloxMetaData: any?, UserIds: any? },
+	rawDataTable: ProfileData<T>,
 	keyInfo: DataStoreKeyInfo,
 	profileStore: ProfileStore<T>,
 	key: string,
