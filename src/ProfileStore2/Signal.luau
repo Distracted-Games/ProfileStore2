@@ -125,7 +125,7 @@ end
 
 function Signal.Wait<T...>(self: Signal<T...>, ...): T...
 	local runningThread = coroutine.running()
-	local connection
+	local connection: Connection
 	connection = self:Connect(function(...)
 		connection:Disconnect()
 		task.spawn(runningThread, ...)
