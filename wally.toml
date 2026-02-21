@@ -1,9 +1,0 @@
-[package]
-name = "Distracted-Games/profilestore2"
-version = "1.1.0"
-registry = "https://github.com/UpliftGames/wally-index"
-realm = "server"
-description = "Asynchronous, session-locked DataStore library for modern Roblox development."
-license = "Apache-2.0"
-
-[dependencies]
