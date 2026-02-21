@@ -16,6 +16,20 @@ A robust, modular, and fully asynchronous DataStore library featuring session lo
 | `Constants.luau` | `.../ProfileStore2/` | A centralized, read-only table of all configuration values. |
 | `Util.luau` | `.../ProfileStore2/` | Shared helper functions like `DeepCopyTable` and `ReconcileTable`. |
 
+## ⬇️ Installation
+
+Here are some easy ways to install ProfileStore2:
+
+1.  **Releases**
+    If you simply want to drop the library into your game in Roblox Studio, simply download the latest release `.rbxm` file from [Releases](https://github.com/Distracted-Games/ProfileStore2/releases/) page and insert it into your experience. I recomend placing this library in `ServerScriptService`, ideally in a `Libs` or `Packages` folder.
+
+2.  **Command Line**
+    If you prefer to directly inpor the library into your project and are using Git, run the following command:
+    ```bash
+    git subtree add --prefix=src/ServerScriptService/Source/Libs/ProfileStore2 https://github.com/Distracted-Games/ProfileStore2 dist --squash
+    ```
+    💡*Note: Replace the location after `prefix=` to where you want the library to be inported to. Make sure to end the path with `ProfileStore2`*
+
 ## 🧠 Design Philosophy
 
 This refactor was built on three core professional principles:
