@@ -8,10 +8,10 @@
             "$className": "ServerScriptService",
             "$ignoreUnknownInstances": true,
             "ProfileStore2": {
-                "$path": "src/ProfileStore2"
+                "$path": "src/"
             },
             "Tests": {
-                "$path": "src/Tests"
+                "$path": "Tests"
             }
         }
     }
