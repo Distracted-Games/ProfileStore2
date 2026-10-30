@@ -9,9 +9,6 @@
             "$ignoreUnknownInstances": true,
             "ProfileStore2": {
                 "$path": "src/"
-            },
-            "Tests": {
-                "$path": "src/Tests"
             }
         }
     }
