@@ -1,5 +1,11 @@
 --!strict
-local TestSuite = require(script.Parent["ProfileStore2.test"])
+const TestSuite = require("./ProfileStore2.test")
+
+local testNames: { string } = {}
+for testName in TestSuite :: { [string]: () -> () } do
+	table.insert(testNames, testName)
+end
+table.sort(testNames)
 
 local totalTests = 0
 local passedTests = 0
@@ -8,22 +14,20 @@ print("=====================================")
 print("  Running tests for ProfileStore2 Library  ")
 print("=====================================")
 
-for testName, testFunction in TestSuite :: { () -> () } do
+for _, testName in testNames do
+	const testFunction = (TestSuite :: { [string]: () -> () })[testName]
 	totalTests += 1
-	local success, err = pcall(function()
-        return testFunction
-	end)
 
+	const success, err = pcall(testFunction)
 	if success then
 		passedTests += 1
 		print(`  [PASS] {testName}`)
 	else
-		print(`  [FAIL] {testName} - {tostring(err)}`)
+		warn(`  [FAIL] {testName} - {tostring(err)}`)
 	end
 end
 
--- A small delay to allow any final async operations in tests to complete before the summary.
-task.wait(1)
+task.wait(0.25)
 
 print("=====================================")
 print(`  Test Summary: {passedTests}/{totalTests} passed.  `)

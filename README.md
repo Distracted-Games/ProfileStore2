@@ -4,104 +4,105 @@ A robust, modular, and fully asynchronous DataStore library featuring session lo
 
 ## 🚀 Overview
 
-`ProfileStore2` is architected as a self-contained package. The core logic is broken into several single-responsibility modules, making the system clean, maintainable, and easy to understand.
+`ProfileStore2` is architected as a self-contained package. The core logic is partitioned into single-responsibility modules, keeping the codebase maintainable, strongly typed, and easy to audit:
 
 | Module | Location | Purpose |
 | :--- | :--- | :--- |
-| `init.luau` | `.../ProfileStore2/` | The main entry point and "Store" manager class. This is what you `require`. |
-| `Profile.luau` | `.../ProfileStore2/` | The OOP class for a single "Profile" object, which holds player data. |
-| `LeanPromise/init.luau` | `.../ProfileStore2/Promise/` | **Core Dependency**: A refactored Promise library for asynchronous control flow. |
-| `Promise/PromiseError.luau` | `.../ProfileStore2/Promise/` | **Core Dependency**: The rich error object used by the Promise library. |
-| `Signal.luau` | `.../ProfileStore2/` | A robust, yield-safe Signal implementation used for event handling. |
-| `Constants.luau` | `.../ProfileStore2/` | A centralized, read-only table of all configuration values. |
-| `Util.luau` | `.../ProfileStore2/` | Shared helper functions like `DeepCopyTable` and `ReconcileTable`. |
+| `init.luau` | `.../ProfileStore2/` | Main entry point, store factory, and session coordinator. |
+| `Profile.luau` | `.../ProfileStore2/` | OOP class representing an individual player's data session. |
+| `LeanPromise/init.luau` | `.../ProfileStore2/LeanPromise/` | **Core Dependency**: Lightweight, cancellation-safe Promise implementation. |
+| `LeanPromise/PromiseError.luau` | `.../ProfileStore2/LeanPromise/` | **Core Dependency**: Structured error object with typed error kinds (`DataStoreError`, etc.). |
+| `Signal.luau` | `.../ProfileStore2/` | Yield-safe Signal implementation for event subscriptions. |
+| `Constants.luau` | `.../ProfileStore2/` | Centralized, read-only timings, retry bounds, and configuration thresholds. |
+| `Types.luau` | `.../ProfileStore2/` | Shared Luau type definitions, session states, and error kinds. |
+| `Util.luau` | `.../ProfileStore2/` | Deep copying, table reconciliation, and error classification helpers. |
+| `Addons/Messaging.luau` | `.../ProfileStore2/Addons/` | GlobalUpdates queue management and cross-server/offline messaging. |
+| `Addons/Versioning.luau` | `.../ProfileStore2/Addons/` | Historical version querying and rollback iteration. |
 
 ## ⬇️ Installation
+Here are some easy ways to install `ProfileStore2`:
 
-Here are some easy ways to install ProfileStore2:
+1. **Releases** 
+	If you simply want to drop the library into your game in Roblox Studio, simply download the latest release `.rbxm` file from [Releases](https://github.com/Distracted-Games/ProfileStore2/releases/) and insert it into your project (typically under `ServerScriptService > Libs` or `Pacakages`).
 
-1.  **Releases**
-    If you simply want to drop the library into your game in Roblox Studio, simply download the latest release `.rbxm` file from [Releases](https://github.com/Distracted-Games/ProfileStore2/releases/) page and insert it into your experience. I recomend placing this library in `ServerScriptService`, ideally in a `Libs` or `Packages` folder.
-
-2.  **Command Line**
-    If you prefer to directly inpor the library into your project and are using Git, run the following command:
-    ```bash
-    git subtree add --prefix=src/ServerScriptService/Source/Libs/ProfileStore2 https://github.com/Distracted-Games/ProfileStore2 dist --squash
-    ```
-    💡*Note: Replace the location after `prefix=` to where you want the library to be inported to. Make sure to end the path with `ProfileStore2`*
+2. **Git Subtree**
+	Uf you prefer to directly import the library into your project and are using Git, run the following command:
+   ```bash
+   git subtree add --prefix=src/ServerScriptService/Source/Libs/ProfileStore2 https://github.com/Distracted-Games/ProfileStore2 dist --squash
+   ```
+   💡 *Note: Replace the location after `prefix=` to where you want the library to be imported to. Make sure to end the path with `ProfileStore2`*
 
 ## 🧠 Design Philosophy
 
-This refactor was built on three core professional principles:
+1. **Session Locking First**  
+   Guarantees that only **one server holds an active session** for a key at any time, preventing data corruption or race conditions from rapid server hops. This is something shared by the original `ProfileStore` library.
 
-1.  **Session Locking First**  
-    The primary goal is to guarantee data integrity. The library ensures that only **one server can have an active session** for a single player profile at any time. This prevents data loss and corruption caused by race conditions, such as a player rejoining too quickly or being present in two servers at once.
+2. **Asynchronous by Design**  
+   All DataStore network calls return a **`Promise`**, giving you explicit `:andThen()` and `:catch()` pipelines with cooperative cancellation and bounded retries. This allows you to write clean, non-blocking code that will never lag your game, with clear success (`:andThen`) and failure (`:catch`) paths. This is one of the major differences from the original `ProfileStore`.
 
-2.  **Asynchronous by Design**  
-    All DataStore operations are network calls that can yield. This library embraces that reality by returning a **Promise** for every asynchronous method. This allows you to write clean, non-blocking code that will never lag your game, with clear success (`:andThen`) and failure (`:catch`) paths.
+3. **Modular Submodules with Unified API**  
+   Internal features like `Messaging` and `Versioning` are encapsulated in modular submodules while exposed directly on `ProfileStore` and `store.Mock`.
 
-3.  **Lean and Modular Core**  
-    The main API is intentionally kept small and focused on the essential 95% use case: loading, managing, and saving profiles. More advanced, power-user features like `MessageAsync` and `VersionQuery` are designed as optional "Addon" modules to keep the core library simple and easy to maintain.
+4. **Backward Compatibility & Safe Schema Migrations**  
+   Supports legacy MadStudio `ProfileStore` schemas via `UseLegacySchema = true`, as well as custom `SchemaMigration` transform functions during profile loading.
 
 ## 📦 How to Use
 
-The intended workflow is **Load → Manage → Save on Exit**. You load a player's profile when they join, manage their data in a cached table during their session, and the library automatically handles saving when they leave or the server shuts down.
+The standard lifecycle is **Load → Manage → Save on Exit**. You acquire a session lock on join, mutate cached table data in `profile.Data`, and let ProfileStore2 manage auto-saving and clean shutdown.
 
-Here is a standard implementation in a server-side manager module:
-
+**Example:**
 ```lua
--- ServerScriptService/Source/PlayerData/PlayerProfileManager.luau
 --!strict
-local Players = game:GetService("Players")
-local ServerScriptService = game:GetService("ServerScriptService")
+const Players = game:GetService("Players")
+const ServerScriptService = game:GetService("ServerScriptService")
 
-local ProfileStore = require(ServerScriptService.Source.Libs.ProfileStore2)
-local Profile = require(ServerScriptService.Source.Libs.ProfileStore2.Profile)
+const ProfileStore = require(ServerScriptService.Source.Libs.ProfileStore2)
+const Profile = require(ServerScriptService.Source.Libs.ProfileStore2.Profile)
 
 -- The PROFILE_TEMPLATE table is what new profile "profile.Data" will default to:
-local PROFILE_TEMPLATE = {
+const PROFILE_TEMPLATE = {
 	Cash = 100,
-	Items = {},
+	Items = {} :: { string },
 	LoginCount = 0,
 }
 -- Create a type from our template table for strong type checking and autocompletion.
 type PlayerProfile = typeof(PROFILE_TEMPLATE)
 
 -- A cache for active, loaded profiles.
-local Profiles: { [Player]: Profile.Profile<PlayerProfile> } = {}
--- The single ProfileStore instance for all player data.
-local PlayerStore: ProfileStore.ProfileStore<PlayerProfile> = nil
+local profiles: { [Player]: Profile.Profile<PlayerProfile> } = {}
+-- The single ProfileStore2 instance for all player data.
+local playerStore: ProfileStore.ProfileStore<PlayerProfile>
 
 --[[
     Handles loading and initializing a profile for a single player.
 ]]
 local function onPlayerAdded(player: Player)
-	PlayerStore:LoadProfileAsync(`Player_{player.UserId}`)
+	playerStore:LoadProfileAsync(`Player_{player.UserId}`)
 		:andThen(function(profile: Profile.Profile<PlayerProfile>)
 			if player.Parent ~= Players then
 				profile:EndSession() -- Player left while loading.
 				return
 			end
-			
-            profile:AddUserId(player.UserId) -- GDPR compliance
-			profile:Reconcile() -- Fill in new fields from the template.
-			
-            -- Increment a value for returning players.
-            profile.Data.LoginCount += 1
-            print(`Welcome back! This is login #{profile.Data.LoginCount}`)
-			
+
+			profile:AddUserId(player.UserId) -- GDPR compliance
+			profile:Reconcile() -- Populate missing template fields
+
+			-- Increment a value for returning players.
+			profile.Data.LoginCount += 1
+			print(`Welcome back {player.Name}! Login #{profile.Data.LoginCount}`)
+
 			profile.OnSessionEnd:Connect(function()
-				Profiles[player] = nil
+				profiles[player] = nil
 				player:Kick("Your data session has ended. Please rejoin.")
 			end)
 
-			Profiles[player] = profile
+			profiles[player] = profile
 			print(`Profile loaded for {player.Name}.`)
 		end)
 		:catch(function(err)
-			warn(`CRITICAL: Failed to load profile for {player.Name}: {tostring(err)}`)
-            -- Ideally handle more elegantly than kicking the player.
-			player:Kick("A critical error occurred while loading your data. Please try again later.")
+			warn(`CRITICAL: Failed to load profile for {player.Name}: {err}`)
+			-- Ideally, you should handle this more elegantly than kicking the player.
+			player:Kick("Could not load data. Please rejoin later.")
 		end)
 end
 
@@ -109,7 +110,7 @@ end
     Handles saving a player's profile when they leave.
 ]]
 local function onPlayerRemoving(player: Player)
-	local profile = Profiles[player]
+	const profile = profiles[player]
 	if profile then
 		profile:EndSession()
 	end
@@ -118,55 +119,68 @@ end
 -- Initialize the entire profile management system.
 ProfileStore.create("PlayerProfiles_V1", PROFILE_TEMPLATE)
 	:andThen(function(store)
-		PlayerStore = store
-		print("[PlayerProfileManager]: ProfileStore is ready.")
+		playerStore = store
+		print("[ProfileStore2]: Store ready.")
 
 		Players.PlayerAdded:Connect(onPlayerAdded)
 		Players.PlayerRemoving:Connect(onPlayerRemoving)
 
-		for _, player in ipairs(Players:GetPlayers()) do
+		for _, player in Players:GetPlayers() do
 			task.spawn(onPlayerAdded, player)
 		end
 	end)
 	:catch(function(err)
-		warn("[PlayerProfileManager] CRITICAL: ProfileStore could not be created. Data will not save.", err)
+		warn("[ProfileStore2]: Critical initialization failure:", err)
 	end)
 ```
 
 ## 🛠️ API Reference
 
-### Core `ProfileStore` Functions
-| Function | Description |
-| :--- | :--- |
-| `ProfileStore.create(name, template)` | Asynchronously creates and initializes a store. Returns a `Promise`. |
-| `store:LoadProfileAsync(key, params)` | Loads a profile with a session lock. Returns a `Promise`. |
-| `store:GetAsync(key, version)` | Loads a read-only "view mode" profile. Returns a `Promise`. |
-| `store:RemoveAsync(key)` | Permanently deletes a profile. Returns a `Promise`. |
+### Store Factory
+- `ProfileStore.create(name: string, template: T, options?: StoreOptions): Promise<ProfileStore<T>>`  
+  Creates and initializes a store. Options include:
+  - `UseLegacySchema?: boolean`: Persists data using the legacy MadStudio schema structure (`{ Data, MetaData, MetaTags, ... }`) for backward compatibility with pre-existing databases. Defaults to `false` (clean dictionary format).
+  - `SchemaMigration?: (loadedData: ProfileData<T>) -> ()`: Optional callback to transform or migrate legacy schema fields before session acquisition.
 
-### Key `Profile` Methods
-| Method | Description |
-| :--- | :--- |
-| `profile:IsActive()` | Returns `true` if the session is currently active. |
-| `profile:Reconcile()` | Fills `profile.Data` with any new fields from the template. |
-| `profile:Save()` | Manually triggers a save of the profile's data without ending the session. |
-| `profile:EndSession()` | Ends the session and triggers a final, guaranteed save. |
+### ProfileStore Methods
+| Method | Returns | Description |
+| :--- | :--- | :--- |
+| `store:LoadProfileAsync(key, options?)` | `Promise<Profile<T>>` | Loads a profile with a session lock (`options.Steal`, `options.Cancel`). |
+| `store:GetAsync(key, version?)` | `Promise<Profile<T>?>` | Loads a read-only "view mode" snapshot (or specific version) without locking. |
+| `store:SetAsync(profile)` | `Promise<nil>` | Overwrites saved data with a view snapshot and clears active remote locks. |
+| `store:RemoveAsync(key)` | `Promise<boolean>` | Permanently deletes a profile from the DataStore. |
+| `store:MessageAsync(key, message)` | `Promise<boolean>` | Sends an offline or cross-server message to a profile's `GlobalUpdates` queue. |
+| `store:VersionQuery(key, sortDir?, minDate?, maxDate?)` | `VersionQuery<T>` | Returns a cursor for iterating through historical version snapshots. |
+| `store.Mock` | `MockStore<T>` | In-memory mock store for testing offline or in simulated test runners. |
 
-> 💡 For a more in-depth API reference, please see the upcoming Wiki.
+### Profile Methods
+| Method | Returns | Description |
+| :--- | :--- | :--- |
+| `profile:IsActive()` | `boolean` | Returns `true` if the session lock is currently held. |
+| `profile:Reconcile()` | `()` | Recursively populates missing fields in `profile.Data` from the template. |
+| `profile:Save()` | `Promise<nil>` | Manually flushes cached data without releasing the session lock. |
+| `profile:EndSession()` | `Promise<nil>` | Releases the session lock and performs a final guaranteed save. |
+| `profile:AddUserId(userId)` | `()` | Associates a Roblox `UserId` for GDPR compliance. |
+| `profile:RemoveUserId(userId)` | `()` | Removes an associated `UserId`. |
+| `profile:SetMetaTag(name, val)` | `()` | Sets an arbitrary metadata tag stored alongside the profile. |
+| `profile:GetMetaTag(name)` | `any` | Retrieves a metadata tag value. |
+| `profile.OnSessionEnd` | `Signal<()>` | Fires when the session lock is terminated or stolen. |
+| `profile.OnAfterSave` | `Signal<(T)>` | Fires after a successful DataStore save with the saved payload. |
+| `profile.OnGlobalUpdate` | `Signal<(number, any)>` | Fires when a new message from `MessageAsync` is received. |
 
-## ✨ Features
-- **Guaranteed Session Locking:** Prevents data corruption from simultaneous server access.
-- **Promise-Based Asynchronous API:** Keeps your game fast and responsive with non-blocking code.
-- **Modular & Clean Architecture:** Easy to read, maintain, and understand.
-- **Strictly Type-Safe:** Provides unparalleled developer experience with full autocomplete and error checking.
-- **Integrated Mocking:** Test your data logic offline with `store.Mock:LoadProfileAsync()`.
-- **Automatic Saving:** Periodically auto-saves profiles and guarantees a final save on server shutdown via `BindToClose`.
+### VersionQuery Methods
+- `query:NextAsync(): Promise<Profile<T>?>`  
+  Fetches the next historical version snapshot, or resolves to `nil` when iteration is complete.
 
-## ⚠️ Important Notes
-- **The Golden Rule:** Follow the **Load → Manage → Save on Exit** pattern. The library is a persistence tool, not a real-time database. Manage your gameplay data in the session cache (`profile.Data`) and avoid calling save methods frequently.
-- **Enable API Services:** For `ProfileStore2` to work in a live game or Studio test, you must enable **"Enable Studio Access to API Services"** in Game Settings > Security.
+## ✨ Key Features
 
-## 📁 Folder Placement
-To keep your project organized, we recommend placing the `ProfileStore2` package in:
+- **Robust Session Locking:** Deadlock prevention, automatic heartbeat refreshes, and graceful session stealing.
+- **Promise-Based Asynchronous Flow:** Bounded retries for transient DataStore errors, fast-fail on permanent serialization errors.
+- **Offline Mock Fallback:** Automatically switches to an in-memory mock store in Studio when API services are disabled.
+- **Graceful Server Shutdown:** Integrates with `game:BindToClose` to flush and release all active sessions before shutdown.
+- **Strict Luau Typing:** Full `--!strict` typing throughout the library for strong autocomplete and static analysis.
+
+## 📁 Package Structure
 
 ```
 ServerScriptService/
@@ -174,15 +188,19 @@ ServerScriptService/
     └── Libs/
         └── ProfileStore2/
             ├── init.luau
+            ├── Constants.luau
             ├── Profile.luau
             ├── Signal.luau
-            ├── Constants.luau
-            └── Util.luau
-            └── Promise/
+            ├── Types.luau
+            ├── Util.luau
+            ├── Addons/
+            │   ├── Messaging.luau
+            │   └── Versioning.luau
+            └── LeanPromise/
                 ├── init.luau
                 └── PromiseError.luau
 ```
 
 ---
 
-`ProfileStore2` is designed to provide a rock-solid foundation for your game's data persistence, allowing you to focus on building great gameplay with confidence. Feel free to adapt it to your needs or contribute improvements.
+`ProfileStore2` is licensed under the Apache 2.0 License. See [LICENSE](LICENSE) for details.
